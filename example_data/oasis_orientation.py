@@ -73,7 +73,7 @@ class OASISDataset(Dataset):
 
     def __post_init__(self):
         # Define root path to your datasets
-        path = pathlib.Path('/Users/alex/Documents/IIT/CS 512/Project/Oasis_Datasets')
+        path = pathlib.Path('Oasis_Datasets')
         
         T = torch.from_numpy
         # Load the data for the specified orientation

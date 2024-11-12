@@ -50,7 +50,7 @@ class UniverSegDataset(Dataset):
     image_size: Tuple[int, int] = (128, 128)
 
     def __post_init__(self):
-        path = pathlib.Path('/Users/alex/Documents/IIT/CS 512/Project/Oasis_Datasets')
+        path = pathlib.Path('Oasis_Datasets')
         self._data = load_folder(path, self.orientation, size=self.image_size)
         
         # Create index splits for support, train, and val
