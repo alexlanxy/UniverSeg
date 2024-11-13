@@ -64,20 +64,24 @@ class ISICDataset(Dataset):
     label: int  # Specify target label for binary segmentation
     support_size: int = 5  # Number of support images per target image
     image_size: Tuple[int, int] = (128, 128)
+    load_from_hdf5: bool = False  # Flag to control loading from HDF5
 
     def __post_init__(self):
-        path = pathlib.Path('ISIC2018_Train')
-        print("Absolute path:", path.resolve())
-        self._data = load_folder(path, size=self.image_size)
+        if not self.load_from_hdf5:
+            path = pathlib.Path('ISIC2018_Train')
+            print("Absolute path:", path.resolve())
+            self._data = load_folder(path, size=self.image_size)
 
-        rng = np.random.default_rng(42)
-        N = len(self._data)
-        p = rng.permutation(N)
+            rng = np.random.default_rng(42)
+            N = len(self._data)
+            p = rng.permutation(N)
 
-        # Define 60% for support and the rest (40%) for train+val
-        support_end = int(0.6 * N)
-        self.support_idxs = p[:support_end]
-        self.main_idxs = p[support_end:]  # Combine train and val indices
+            # Define 60% for support and the rest (40%) for train+val
+            support_end = int(0.6 * N)
+            self.support_idxs = p[:support_end]
+            self.main_idxs = p[support_end:]  # Combine train and val indices
+        else:
+            print("Loading dataset from HDF5, bypassing standard initialization.")
 
     def __len__(self):
         return len(self.main_idxs)
@@ -86,13 +90,10 @@ class ISICDataset(Dataset):
         target_idx = self.main_idxs[idx]
         target_img, target_label = self._data[target_idx]
 
+        # Sample support images
         support_indices = random.sample(list(self.support_idxs), self.support_size)
-        support_imgs = []
-        support_labels = []
-        for s_idx in support_indices:
-            s_img, s_seg = self._data[s_idx]
-            support_imgs.append(s_img)
-            support_labels.append(s_seg)
+        support_imgs = [self._data[s_idx][0] for s_idx in support_indices]
+        support_labels = [self._data[s_idx][1] for s_idx in support_indices]
 
         # Convert to tensors
         T = torch.from_numpy
@@ -107,11 +108,16 @@ class ISICDataset(Dataset):
 
     def save_hdf5(self, path: str):
         with h5py.File(path, 'w') as f:
-            # Save support and main indices
+            # Save metadata
+            f.attrs['label'] = self.label
+            f.attrs['support_size'] = self.support_size
+            f.attrs['image_size'] = self.image_size
+
+            # Save indices
             f.create_dataset("support_idxs", data=self.support_idxs)
             f.create_dataset("main_idxs", data=self.main_idxs)
 
-            # Save each image and mask as separate datasets
+            # Save image and mask data
             for i, (img, seg) in enumerate(self._data):
                 f.create_dataset(f"img_{i}", data=img, compression="gzip")
                 f.create_dataset(f"seg_{i}", data=seg, compression="gzip")
@@ -119,22 +125,23 @@ class ISICDataset(Dataset):
         print(f"Dataset saved as HDF5 at {path}")
 
     @classmethod
-    def load_hdf5(cls, path: str, label: int, support_size: int = 5, image_size: Tuple[int, int] = (128, 128)):
-        loaded_data = []
+    def load_hdf5(cls, path: str):
         with h5py.File(path, 'r') as f:
-            support_idxs = f["support_idxs"][:]
-            main_idxs = f["main_idxs"][:]
+            # Load metadata
+            label = f.attrs['label']
+            support_size = f.attrs['support_size']
+            image_size = tuple(f.attrs['image_size'])
 
-            # Load each image and mask from HDF5
-            for i in range(len(support_idxs) + len(main_idxs)):
-                img = f[f"img_{i}"][:]
-                seg = f[f"seg_{i}"][:]
-                loaded_data.append((img, seg))
+            # Create an empty instance with metadata
+            instance = cls(label=label, support_size=support_size, image_size=image_size, load_from_hdf5=True)
 
-        # Create an instance of ISICDataset and assign loaded data
-        instance = cls(label=label, support_size=support_size, image_size=image_size)
-        instance._data = loaded_data
-        instance.support_idxs = support_idxs
-        instance.main_idxs = main_idxs
+            # Load indices
+            instance.support_idxs = f["support_idxs"][:]
+            instance.main_idxs = f["main_idxs"][:]
+
+            # Load image and mask data
+            instance._data = [(f[f"img_{i}"][:], f[f"seg_{i}"][:]) for i in
+                              range(len(instance.support_idxs) + len(instance.main_idxs))]
+
         print(f"Dataset loaded from HDF5 at {path}")
         return instance
