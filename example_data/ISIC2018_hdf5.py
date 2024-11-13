@@ -59,15 +59,13 @@ def load_folder(path: pathlib.Path, size: Tuple[int, int] = (128, 128)):
     return data
 
 
-@dataclass
 class ISICDataset(Dataset):
-    label: int  # Specify target label for binary segmentation
-    support_size: int = 5  # Number of support images per target image
-    image_size: Tuple[int, int] = (128, 128)
-    load_from_hdf5: bool = False  # Flag to control loading from HDF5
+    def __init__(self, label: int, support_size: int = 5, image_size: Tuple[int, int] = (128, 128), load_from_hdf5: bool = False):
+        self.label = label
+        self.support_size = support_size
+        self.image_size = image_size
 
-    def __post_init__(self):
-        if not self.load_from_hdf5:
+        if not load_from_hdf5:
             path = pathlib.Path('ISIC2018_Train')
             print("Absolute path:", path.resolve())
             self._data = load_folder(path, size=self.image_size)
@@ -81,7 +79,10 @@ class ISICDataset(Dataset):
             self.support_idxs = p[:support_end]
             self.main_idxs = p[support_end:]  # Combine train and val indices
         else:
-            print("Loading dataset from HDF5, bypassing standard initialization.")
+            # Leave everything uninitialized for now; will be loaded by load_hdf5
+            self._data = []
+            self.support_idxs = []
+            self.main_idxs = []
 
     def __len__(self):
         return len(self.main_idxs)
@@ -125,22 +126,27 @@ class ISICDataset(Dataset):
         print(f"Dataset saved as HDF5 at {path}")
 
     @classmethod
-    def load_hdf5(cls, path: str, label: int, support_size: int = 5, image_size: Tuple[int, int] = (128, 128)):
-        loaded_data = []
+    def load_hdf5(cls, path: str, support_size: int = None):
         with h5py.File(path, 'r') as f:
+            # Load metadata
+            label = f.attrs['label']
+            saved_support_size = f.attrs['support_size']
+            image_size = tuple(f.attrs['image_size'])
+
+            # Override support_size if specified
+            if support_size is None:
+                support_size = saved_support_size
+
             support_idxs = f["support_idxs"][:]
             main_idxs = f["main_idxs"][:]
 
             # Load each image and mask from HDF5
-            for i in range(len(support_idxs) + len(main_idxs)):
-                img = f[f"img_{i}"][:]
-                seg = f[f"seg_{i}"][:]
-                loaded_data.append((img, seg))
+            loaded_data = [(f[f"img_{i}"][:], f[f"seg_{i}"][:]) for i in range(len(support_idxs) + len(main_idxs))]
 
         # Create an instance of ISICDataset and assign loaded data
         instance = cls(label=label, support_size=support_size, image_size=image_size, load_from_hdf5=True)
         instance._data = loaded_data
         instance.support_idxs = support_idxs
         instance.main_idxs = main_idxs
-        print(f"Dataset loaded from HDF5 at {path}")
+        print(f"Dataset loaded from HDF5 at {path} with support_size={support_size}")
         return instance
