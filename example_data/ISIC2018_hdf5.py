@@ -125,23 +125,22 @@ class ISICDataset(Dataset):
         print(f"Dataset saved as HDF5 at {path}")
 
     @classmethod
-    def load_hdf5(cls, path: str):
+    def load_hdf5(cls, path: str, label: int, support_size: int = 5, image_size: Tuple[int, int] = (128, 128)):
+        loaded_data = []
         with h5py.File(path, 'r') as f:
-            # Load metadata
-            label = f.attrs['label']
-            support_size = f.attrs['support_size']
-            image_size = tuple(f.attrs['image_size'])
+            support_idxs = f["support_idxs"][:]
+            main_idxs = f["main_idxs"][:]
 
-            # Create an empty instance with metadata
-            instance = cls(label=label, support_size=support_size, image_size=image_size, load_from_hdf5=True)
+            # Load each image and mask from HDF5
+            for i in range(len(support_idxs) + len(main_idxs)):
+                img = f[f"img_{i}"][:]
+                seg = f[f"seg_{i}"][:]
+                loaded_data.append((img, seg))
 
-            # Load indices
-            instance.support_idxs = f["support_idxs"][:]
-            instance.main_idxs = f["main_idxs"][:]
-
-            # Load image and mask data
-            instance._data = [(f[f"img_{i}"][:], f[f"seg_{i}"][:]) for i in
-                              range(len(instance.support_idxs) + len(instance.main_idxs))]
-
+        # Create an instance of ISICDataset and assign loaded data
+        instance = cls(label=label, support_size=support_size, image_size=image_size, load_from_hdf5=True)
+        instance._data = loaded_data
+        instance.support_idxs = support_idxs
+        instance.main_idxs = main_idxs
         print(f"Dataset loaded from HDF5 at {path}")
         return instance
